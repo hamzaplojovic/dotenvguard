@@ -1,14 +1,15 @@
 # dotenvguard
 
 [![PyPI version](https://badge.fury.io/py/dotenvguard.svg)](https://badge.fury.io/py/dotenvguard)
+[![Downloads](https://static.pepy.tech/badge/dotenvguard)](https://pepy.tech/project/dotenvguard)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/hamzaplojovic/dotenvguard/actions/workflows/ci.yml/badge.svg)](https://github.com/hamzaplojovic/dotenvguard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/hamzaplojovic/dotenvguard/blob/main/LICENSE)
 
-Validate `.env` files against `.env.example` — catch missing variables before they crash production.
+You know the drill. Someone adds `STRIPE_KEY` to `.env.example`, forgets to mention it, and the next deploy blows up with a `KeyError`. dotenvguard catches that before it happens.
 
 ```
-$ dotenvguard check .
+$ dotenvguard check
 
                          dotenvguard
 ┏━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -27,52 +28,43 @@ $ dotenvguard check .
 ## Install
 
 ```bash
-# pip
 pip install dotenvguard
 
-# uv (recommended)
+# or with uv
 uv tool install dotenvguard
-
-# pipx
-pipx install dotenvguard
 ```
 
-## Usage
+## How it works
+
+Point it at a directory. It finds `.env` and `.env.example`, compares them, and tells you what's off.
 
 ```bash
-# Check current directory (auto-detects .env and .env.example)
-dotenvguard check
-
-# Check a specific directory
-dotenvguard check /path/to/project
-
-# Use custom file paths
-dotenvguard check --env .env.local --example .env.example
-
-# Show extra variables not in .env.example
-dotenvguard check --extra
-
-# JSON output for CI/scripts
-dotenvguard check --json
-
-# Don't warn about empty values
-dotenvguard check --no-empty-warning
+dotenvguard check                  # current dir
+dotenvguard check /path/to/project # somewhere else
+dotenvguard check --json           # machine-readable output
+dotenvguard check --extra          # also show vars in .env that aren't in .env.example
 ```
 
-### CI Integration
+Custom file paths if your setup is weird:
 
-dotenvguard exits with code `1` when variables are missing — drop it into any CI pipeline:
+```bash
+dotenvguard check --env .env.local --example .env.template
+```
+
+It picks up `.env.example`, `.env.sample`, and `.env.template` automatically, so most projects just work out of the box.
+
+## Drop it in CI
+
+Exits with code 1 when something's missing. That's it.
 
 ```yaml
 # GitHub Actions
-- name: Validate environment
-  run: pip install dotenvguard && dotenvguard check
+- run: pip install dotenvguard && dotenvguard check
 ```
 
-### Pre-commit Hook
+Or as a pre-commit hook:
 
 ```yaml
-# .pre-commit-config.yaml
 repos:
   - repo: local
     hooks:
@@ -84,39 +76,30 @@ repos:
         pass_filenames: false
 ```
 
-## What it Checks
+## What the statuses mean
 
-| Status    | Meaning                                          |
+| Status    | What it means                                    |
 |-----------|--------------------------------------------------|
-| `ok`      | Variable exists in `.env` with a value           |
-| `MISSING` | Variable in `.env.example` but not in `.env`     |
-| `empty`   | Variable exists in `.env` but has no value       |
-| `extra`   | Variable in `.env` but not in `.env.example`     |
+| `ok`      | Present in `.env` with a value. You're good.     |
+| `MISSING` | In `.env.example` but not in your `.env` at all. |
+| `empty`   | Key exists but the value is blank.               |
+| `extra`   | In `.env` but not in `.env.example`. Orphaned.   |
 
-## Supported .env Formats
+## Handles real .env files
+
+Not just `KEY=value`. The parser deals with the stuff you actually see in the wild:
 
 ```bash
-# Standard key=value
-DATABASE_URL=postgres://localhost/db
-
-# Quoted values (single or double)
-SECRET="value with spaces"
-
-# Export prefix
-export API_KEY=sk-1234
-
-# Inline comments (outside quotes)
-DEBUG=true  # enable debug mode
-
-# Values with equals signs
-CONNECTION_STRING=postgres://user:pass@host/db?sslmode=require
+DATABASE_URL=postgres://localhost/db    # standard
+SECRET="value with spaces"             # quoted
+export API_KEY=sk-1234                  # export prefix
+DEBUG=true  # enable debug mode        # inline comments
+DSN=postgres://u:p@host/db?ssl=require # equals in values
 ```
 
-## Why dotenvguard?
+## Why I built this
 
-Every project with a `.env` file has this problem: someone adds a new environment variable, updates `.env.example`, and forgets to tell the team. The next deploy crashes with a cryptic `KeyError` or connects to the wrong database.
-
-Existing solutions are either too heavy (full config management) or too manual (eyeballing the diff). dotenvguard is one command that answers one question: **does my `.env` have everything it needs?**
+I got tired of deployments failing because someone added an env var and forgot to tell the team. `python-dotenv` loads vars but doesn't check if they're all there. `pydantic-settings` validates at runtime but you need to write a Settings class. I just wanted one command I could run before pushing.
 
 ## License
 
