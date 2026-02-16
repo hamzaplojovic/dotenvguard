@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from dotenvguard.core import parse_env_file, validate
+from dotenvguard.core import Status, parse_env_file, parse_example_file, validate
 
 
 @pytest.fixture
@@ -179,3 +179,103 @@ class TestValidate:
         result = validate(env, example)
         assert result.ok
         assert len(result.vars) == 0
+
+    def test_optional_missing_var_is_ok(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = validate(env, example)
+        assert result.ok
+        assert len(result.missing) == 0
+        debug_var = next(v for v in result.vars if v.name == "DEBUG")
+        assert debug_var.status == Status.OPTIONAL
+        assert debug_var.optional is True
+        assert debug_var.has_default is True
+        assert debug_var.default_value == "true"
+
+    def test_optional_present_var_is_ok(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost\nDEBUG=false",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = validate(env, example)
+        assert result.ok
+        debug_var = next(v for v in result.vars if v.name == "DEBUG")
+        assert debug_var.status == Status.OK
+        assert debug_var.optional is True
+
+    def test_optional_does_not_affect_required_vars(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DEBUG=false",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = validate(env, example)
+        assert not result.ok
+        assert len(result.missing) == 1
+        assert result.missing[0].name == "DB_URL"
+
+    def test_optional_case_insensitive(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=x",
+            example_content="DB_URL=\nDEBUG=true  # Optional\nLOG=info  # OPTIONAL",
+        )
+        result = validate(env, example)
+        assert result.ok
+
+    def test_optional_in_json_output(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = validate(env, example)
+        data = result.to_dict()
+        assert data["ok"] is True
+        debug_entry = next(v for v in data["variables"] if v["name"] == "DEBUG")
+        assert debug_entry["optional"] is True
+        assert debug_entry["status"] == "optional"
+
+    def test_multiple_optional_vars(self, tmp_env):
+        env, example = tmp_env(
+            env_content="SECRET_KEY=abc",
+            example_content=(
+                "SECRET_KEY=\n"
+                "DEBUG=true  # optional\n"
+                "LOG_LEVEL=info  # optional\n"
+                "CACHE_TTL=3600  # optional\n"
+            ),
+        )
+        result = validate(env, example)
+        assert result.ok
+        optional_vars = [v for v in result.vars if v.optional]
+        assert len(optional_vars) == 3
+
+
+class TestParseExampleFile:
+    def test_detects_optional_annotation(self, tmp_path: Path):
+        f = tmp_path / ".env.example"
+        f.write_text("DB_URL=\nDEBUG=true  # optional\nSECRET=")
+        vars_dict, optional_names = parse_example_file(f)
+        assert "DEBUG" in optional_names
+        assert "DB_URL" not in optional_names
+        assert "SECRET" not in optional_names
+        assert vars_dict["DEBUG"] == "true"
+
+    def test_optional_with_no_default(self, tmp_path: Path):
+        f = tmp_path / ".env.example"
+        f.write_text("DEBUG=  # optional")
+        vars_dict, optional_names = parse_example_file(f)
+        assert "DEBUG" in optional_names
+        assert vars_dict["DEBUG"] == ""
+
+    def test_no_optional_annotations(self, tmp_path: Path):
+        f = tmp_path / ".env.example"
+        f.write_text("DB_URL=\nAPI_KEY=")
+        vars_dict, optional_names = parse_example_file(f)
+        assert len(optional_names) == 0
+
+    def test_nonexistent_file(self, tmp_path: Path):
+        f = tmp_path / "nope"
+        vars_dict, optional_names = parse_example_file(f)
+        assert vars_dict == {}
+        assert optional_names == set()

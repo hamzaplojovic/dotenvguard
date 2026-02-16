@@ -97,6 +97,38 @@ class TestCheckCommand:
         )
         assert result.exit_code == 0
 
+    def test_optional_missing_exits_zero(self, tmp_path: Path):
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path)])
+        assert result.exit_code == 0
+        output = _strip_ansi(result.output)
+        assert "optional" in output.lower()
+
+    def test_optional_json_output(self, tmp_path: Path):
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path), "--json"])
+        assert result.exit_code == 0
+        output = _strip_ansi(result.output)
+        assert '"ok": true' in output
+        assert '"optional": true' in output
+
+    def test_optional_with_required_missing_exits_one(self, tmp_path: Path):
+        _setup_env_files(
+            tmp_path,
+            env_content="DEBUG=false",
+            example_content="DB_URL=\nDEBUG=true  # optional",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path)])
+        assert result.exit_code == 1
+
     def test_version_flag(self):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0

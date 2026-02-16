@@ -76,14 +76,47 @@ repos:
         pass_filenames: false
 ```
 
+## Optional variables
+
+Some variables have sensible defaults in your code and don't *need* to be in `.env`. Mark them with a `# optional` comment in your `.env.example`:
+
+```bash
+# .env.example
+DATABASE_URL=
+SECRET_KEY=
+DEBUG=true           # optional
+LOG_LEVEL=info       # optional
+CACHE_TTL=3600       # optional
+```
+
+If an optional variable is missing from `.env`, dotenvguard won't flag it as an error — it shows up as `optional` instead of `MISSING`, and the exit code stays 0:
+
+```
+                         dotenvguard
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
+┃ Variable     ┃  Status  ┃ Default ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
+│ DATABASE_URL │    ok    │         │
+│ SECRET_KEY   │    ok    │         │
+│ DEBUG        │ optional │ true    │
+│ LOG_LEVEL    │ optional │ info    │
+│ CACHE_TTL    │ optional │ 3600    │
+└──────────────┴──────────┴─────────┘
+
+All 5 variables present. (3 optional variables skipped)
+```
+
+This way your `.env.example` stays a complete reference of *every* env var your app understands, while only the truly required ones block deploys.
+
 ## What the statuses mean
 
-| Status    | What it means                                    |
-|-----------|--------------------------------------------------|
-| `ok`      | Present in `.env` with a value. You're good.     |
-| `MISSING` | In `.env.example` but not in your `.env` at all. |
-| `empty`   | Key exists but the value is blank.               |
-| `extra`   | In `.env` but not in `.env.example`. Orphaned.   |
+| Status     | What it means                                               |
+|------------|-------------------------------------------------------------|
+| `ok`       | Present in `.env` with a value. You're good.                |
+| `MISSING`  | In `.env.example` but not in your `.env` at all.            |
+| `empty`    | Key exists but the value is blank.                          |
+| `extra`    | In `.env` but not in `.env.example`. Orphaned.              |
+| `optional` | Marked `# optional` and not in `.env`. Using code default.  |
 
 ## Handles real .env files
 

@@ -60,6 +60,7 @@ def _render_table(result: ValidationResult) -> None:
         Status.MISSING: "[red bold]MISSING[/red bold]",
         Status.EMPTY: "[yellow]empty[/yellow]",
         Status.EXTRA: "[dim]extra[/dim]",
+        Status.OPTIONAL: "[blue]optional[/blue]",
     }
 
     for var in result.vars:
@@ -75,6 +76,7 @@ def _render_table(result: ValidationResult) -> None:
 
     n_missing = len(result.missing)
     n_empty = len(result.empty)
+    n_optional = sum(1 for v in result.vars if v.status == Status.OPTIONAL)
     n_total = len(result.vars)
 
     if n_missing:
@@ -91,7 +93,13 @@ def _render_table(result: ValidationResult) -> None:
             f" out of {n_total}",
         )
     else:
-        console.print(f"\n[green]All {n_total} variables present.[/green]")
+        parts = [f"[green]All {n_total} variables present.[/green]"]
+        if n_optional:
+            s = "s" if n_optional != 1 else ""
+            parts.append(
+                f" [blue]({n_optional} optional variable{s} skipped)[/blue]"
+            )
+        console.print("\n" + "".join(parts))
 
 
 @app.command()

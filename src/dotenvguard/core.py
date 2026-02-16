@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -16,6 +17,7 @@ class Status(StrEnum):
     MISSING = "missing"
     EMPTY = "empty"
     EXTRA = "extra"
+    OPTIONAL = "optional"
 
 
 @dataclass
@@ -24,6 +26,7 @@ class EnvVar:
     status: Status
     has_default: bool = False
     default_value: str | None = None
+    optional: bool = False
 
 
 @dataclass
@@ -34,7 +37,9 @@ class ValidationResult:
 
     @property
     def ok(self) -> bool:
-        return all(v.status in (Status.OK, Status.EXTRA) for v in self.vars)
+        return all(
+            v.status in (Status.OK, Status.EXTRA, Status.OPTIONAL) for v in self.vars
+        )
 
     @property
     def missing(self) -> list[EnvVar]:
@@ -61,6 +66,7 @@ class ValidationResult:
                     "name": v.name,
                     "status": v.status.value,
                     "has_default": v.has_default,
+                    "optional": v.optional,
                 }
                 for v in self.vars
             ],
@@ -68,6 +74,9 @@ class ValidationResult:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)
+
+
+_OPTIONAL_RE = re.compile(r"#\s*optional\b", re.IGNORECASE)
 
 
 def parse_env_file(path: Path) -> dict[str, str | None]:
@@ -120,6 +129,57 @@ def parse_env_file(path: Path) -> dict[str, str | None]:
     return result
 
 
+def parse_example_file(path: Path) -> tuple[dict[str, str | None], set[str]]:
+    """Parse a .env.example file, returning vars and which ones are optional.
+
+    Variables can be marked optional with an inline ``# optional`` comment::
+
+        DEBUG=true           # optional
+        LOG_LEVEL=info       # optional
+
+    Returns:
+        A tuple of (vars_dict, optional_names).
+    """
+    vars_dict: dict[str, str | None] = {}
+    optional_names: set[str] = set()
+
+    if not path.exists():
+        return vars_dict, optional_names
+
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        # Detect # optional annotation *before* stripping comments
+        is_optional = bool(_OPTIONAL_RE.search(raw_line))
+
+        if line.startswith("export "):
+            line = line[7:]
+
+        if "=" in line:
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+
+            if value and value[0] not in ('"', "'"):
+                value = value.split("#")[0].strip()
+
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+
+            vars_dict[key] = value if value else ""
+        else:
+            key = line.strip()
+            vars_dict[key] = None
+
+        if is_optional:
+            optional_names.add(key)
+
+    return vars_dict, optional_names
+
+
 def find_env_files(
     directory: Path,
 ) -> tuple[Path | None, Path | None]:
@@ -152,7 +212,7 @@ def validate(
     show_extra: bool = False,
 ) -> ValidationResult:
     """Validate .env against .env.example."""
-    example_vars = parse_env_file(example_path)
+    example_vars, optional_names = parse_example_file(example_path)
     env_vars = parse_env_file(env_path)
 
     result = ValidationResult(
@@ -163,16 +223,28 @@ def validate(
     for name in example_vars:
         has_default = example_vars[name] is not None and example_vars[name] != ""
         default_value = example_vars[name] if has_default else None
+        is_optional = name in optional_names
 
         if name not in env_vars:
-            result.vars.append(
-                EnvVar(
-                    name=name,
-                    status=Status.MISSING,
-                    has_default=has_default,
-                    default_value=default_value,
+            if is_optional:
+                result.vars.append(
+                    EnvVar(
+                        name=name,
+                        status=Status.OPTIONAL,
+                        has_default=has_default,
+                        default_value=default_value,
+                        optional=True,
+                    )
                 )
-            )
+            else:
+                result.vars.append(
+                    EnvVar(
+                        name=name,
+                        status=Status.MISSING,
+                        has_default=has_default,
+                        default_value=default_value,
+                    )
+                )
         elif env_vars[name] == "" and warn_empty:
             result.vars.append(
                 EnvVar(
@@ -180,6 +252,7 @@ def validate(
                     status=Status.EMPTY,
                     has_default=has_default,
                     default_value=default_value,
+                    optional=is_optional,
                 )
             )
         else:
@@ -189,6 +262,7 @@ def validate(
                     status=Status.OK,
                     has_default=has_default,
                     default_value=default_value,
+                    optional=is_optional,
                 )
             )
 
