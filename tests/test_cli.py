@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -9,6 +10,12 @@ from typer.testing import CliRunner
 from dotenvguard.cli import app
 
 runner = CliRunner()
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_RE.sub("", text)
 
 
 def _setup_env_files(
@@ -48,8 +55,9 @@ class TestCheckCommand:
         )
         result = runner.invoke(app, ["check", str(tmp_path), "--json"])
         assert result.exit_code == 1
-        assert '"ok": false' in result.output
-        assert '"API_KEY"' in result.output
+        output = _strip_ansi(result.output)
+        assert '"ok": false' in output
+        assert '"API_KEY"' in output
 
     def test_no_example_file_exits_one(self, tmp_path: Path):
         (tmp_path / ".env").write_text("KEY=value")
@@ -92,4 +100,4 @@ class TestCheckCommand:
     def test_version_flag(self):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "0.1.0" in _strip_ansi(result.output)
