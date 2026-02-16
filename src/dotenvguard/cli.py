@@ -60,6 +60,8 @@ def _render_table(result: ValidationResult) -> None:
         Status.MISSING: "[red bold]MISSING[/red bold]",
         Status.EMPTY: "[yellow]empty[/yellow]",
         Status.EXTRA: "[dim]extra[/dim]",
+        Status.OPTIONAL: "[dim]optional[/dim]",
+        Status.ENV: "[blue]env[/blue]",
     }
 
     for var in result.vars:
@@ -135,6 +137,13 @@ def check(
             help="Don't warn about empty values.",
         ),
     ] = False,
+    check_env: Annotated[
+        bool,
+        typer.Option(
+            "--check-env",
+            help="Fall back to os.environ for missing variables.",
+        ),
+    ] = False,
     output_json: Annotated[
         bool,
         typer.Option(
@@ -173,6 +182,7 @@ def check(
         example_path=example_file,
         warn_empty=not no_empty_warning,
         show_extra=show_extra,
+        check_env=check_env,
     )
 
     if output_json:

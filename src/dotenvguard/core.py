@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -16,6 +18,8 @@ class Status(StrEnum):
     MISSING = "missing"
     EMPTY = "empty"
     EXTRA = "extra"
+    OPTIONAL = "optional"
+    ENV = "env"
 
 
 @dataclass
@@ -24,6 +28,8 @@ class EnvVar:
     status: Status
     has_default: bool = False
     default_value: str | None = None
+    is_optional: bool = False
+    source: str | None = None
 
 
 @dataclass
@@ -34,7 +40,10 @@ class ValidationResult:
 
     @property
     def ok(self) -> bool:
-        return all(v.status in (Status.OK, Status.EXTRA) for v in self.vars)
+        return all(
+            v.status in (Status.OK, Status.EXTRA, Status.OPTIONAL, Status.ENV)
+            for v in self.vars
+        )
 
     @property
     def missing(self) -> list[EnvVar]:
@@ -61,6 +70,8 @@ class ValidationResult:
                     "name": v.name,
                     "status": v.status.value,
                     "has_default": v.has_default,
+                    "optional": v.is_optional,
+                    **({"source": v.source} if v.source else {}),
                 }
                 for v in self.vars
             ],
@@ -70,8 +81,21 @@ class ValidationResult:
         return json.dumps(self.to_dict(), indent=2)
 
 
-def parse_env_file(path: Path) -> dict[str, str | None]:
+@dataclass
+class ParsedVar:
+    value: str | None
+    is_optional: bool = False
+
+
+def parse_env_file(
+    path: Path,
+    *,
+    parse_annotations: bool = False,
+) -> dict[str, str | None] | dict[str, ParsedVar]:
     """Parse a .env file into a dict of name -> value.
+
+    When parse_annotations=True, returns dict[str, ParsedVar] with optional
+    metadata parsed from inline comments (e.g. ``# optional``).
 
     Handles:
     - KEY=value
@@ -81,13 +105,18 @@ def parse_env_file(path: Path) -> dict[str, str | None]:
     - KEY (no value, treated as None)
     - # comments and blank lines (skipped)
     - export KEY=value (strips export prefix)
+    - KEY= # optional (marks var as optional when parse_annotations=True)
     """
-    result: dict[str, str | None] = {}
+    _OPTIONAL_RE = re.compile(r"#\s*optional\b", re.IGNORECASE)
+
+    result_simple: dict[str, str | None] = {}
+    result_annotated: dict[str, ParsedVar] = {}
 
     if not path.exists():
-        return result
+        return result_annotated if parse_annotations else result_simple
 
     for line in path.read_text().splitlines():
+        raw_line = line
         line = line.strip()
 
         # Skip empty lines and comments
@@ -97,6 +126,11 @@ def parse_env_file(path: Path) -> dict[str, str | None]:
         # Strip optional 'export ' prefix
         if line.startswith("export "):
             line = line[7:]
+
+        # Detect # optional annotation from the raw line
+        is_optional = (
+            bool(_OPTIONAL_RE.search(raw_line)) if parse_annotations else False
+        )
 
         # Split on first '='
         if "=" in line:
@@ -112,12 +146,19 @@ def parse_env_file(path: Path) -> dict[str, str | None]:
             if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
                 value = value[1:-1]
 
-            result[key] = value if value else ""
+            final_value = value if value else ""
         else:
-            # KEY with no = sign
-            result[line.strip()] = None
+            key = line.strip()
+            final_value = None
 
-    return result
+        if parse_annotations:
+            result_annotated[key] = ParsedVar(
+                value=final_value, is_optional=is_optional
+            )
+        else:
+            result_simple[key] = final_value
+
+    return result_annotated if parse_annotations else result_simple
 
 
 def find_env_files(
@@ -150,9 +191,14 @@ def validate(
     *,
     warn_empty: bool = True,
     show_extra: bool = False,
+    check_env: bool = False,
 ) -> ValidationResult:
-    """Validate .env against .env.example."""
-    example_vars = parse_env_file(example_path)
+    """Validate .env against .env.example.
+
+    When check_env=True, variables missing from .env are looked up in
+    os.environ before being marked MISSING.
+    """
+    example_parsed = parse_env_file(example_path, parse_annotations=True)
     env_vars = parse_env_file(env_path)
 
     result = ValidationResult(
@@ -160,19 +206,44 @@ def validate(
         example_path=str(example_path),
     )
 
-    for name in example_vars:
-        has_default = example_vars[name] is not None and example_vars[name] != ""
-        default_value = example_vars[name] if has_default else None
+    for name, parsed in example_parsed.items():
+        example_value = parsed.value
+        is_optional = parsed.is_optional
+
+        has_default = example_value is not None and example_value != ""
+        default_value = example_value if has_default else None
 
         if name not in env_vars:
-            result.vars.append(
-                EnvVar(
-                    name=name,
-                    status=Status.MISSING,
-                    has_default=has_default,
-                    default_value=default_value,
+            # Check os.environ as fallback
+            if check_env and name in os.environ:
+                result.vars.append(
+                    EnvVar(
+                        name=name,
+                        status=Status.ENV,
+                        has_default=has_default,
+                        default_value=default_value,
+                        source="os.environ",
+                    )
                 )
-            )
+            elif is_optional:
+                result.vars.append(
+                    EnvVar(
+                        name=name,
+                        status=Status.OPTIONAL,
+                        has_default=has_default,
+                        default_value=default_value,
+                        is_optional=True,
+                    )
+                )
+            else:
+                result.vars.append(
+                    EnvVar(
+                        name=name,
+                        status=Status.MISSING,
+                        has_default=has_default,
+                        default_value=default_value,
+                    )
+                )
         elif env_vars[name] == "" and warn_empty:
             result.vars.append(
                 EnvVar(
@@ -180,6 +251,7 @@ def validate(
                     status=Status.EMPTY,
                     has_default=has_default,
                     default_value=default_value,
+                    is_optional=is_optional,
                 )
             )
         else:
@@ -189,12 +261,13 @@ def validate(
                     status=Status.OK,
                     has_default=has_default,
                     default_value=default_value,
+                    is_optional=is_optional,
                 )
             )
 
     if show_extra:
         for name in env_vars:
-            if name not in example_vars:
+            if name not in example_parsed:
                 result.vars.append(EnvVar(name=name, status=Status.EXTRA))
 
     return result

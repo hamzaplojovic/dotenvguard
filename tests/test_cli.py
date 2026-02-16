@@ -100,4 +100,52 @@ class TestCheckCommand:
     def test_version_flag(self):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.1" in _strip_ansi(result.output)
+        assert "0.2.0" in _strip_ansi(result.output)
+
+
+class TestOptionalVarsCLI:
+    def test_optional_missing_exits_zero(self, tmp_path: Path):
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nSENTRY_DSN= # optional",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path)])
+        assert result.exit_code == 0
+        output = _strip_ansi(result.output)
+        assert "optional" in output
+
+    def test_optional_in_json(self, tmp_path: Path):
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nSENTRY_DSN= # optional",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path), "--json"])
+        assert result.exit_code == 0
+        output = _strip_ansi(result.output)
+        assert '"optional"' in output
+
+
+class TestCheckEnvCLI:
+    def test_check_env_flag(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("API_KEY", "from-environ")
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nAPI_KEY=",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path), "--check-env"])
+        assert result.exit_code == 0
+        output = _strip_ansi(result.output)
+        assert "env" in output.lower()
+
+    def test_check_env_still_fails_if_not_in_environ(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("API_KEY", raising=False)
+        _setup_env_files(
+            tmp_path,
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nAPI_KEY=",
+        )
+        result = runner.invoke(app, ["check", str(tmp_path), "--check-env"])
+        assert result.exit_code == 1

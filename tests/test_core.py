@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from dotenvguard.core import parse_env_file, validate
+from dotenvguard.core import Status, parse_env_file, validate
 
 
 @pytest.fixture
@@ -179,3 +179,105 @@ class TestValidate:
         result = validate(env, example)
         assert result.ok
         assert len(result.vars) == 0
+
+
+class TestOptionalVars:
+    def test_optional_missing_is_ok(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nSENTRY_DSN= # optional",
+        )
+        result = validate(env, example)
+        assert result.ok
+        assert any(
+            v.name == "SENTRY_DSN" and v.status == Status.OPTIONAL for v in result.vars
+        )
+
+    def test_optional_present_is_ok(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost\nSENTRY_DSN=https://sentry.io",
+            example_content="DB_URL=\nSENTRY_DSN= # optional",
+        )
+        result = validate(env, example)
+        assert result.ok
+        sentry = next(v for v in result.vars if v.name == "SENTRY_DSN")
+        assert sentry.status == Status.OK
+        assert sentry.is_optional
+
+    def test_optional_case_insensitive(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nDEBUG= # OPTIONAL",
+        )
+        result = validate(env, example)
+        assert result.ok
+
+    def test_optional_with_default(self, tmp_env):
+        env, example = tmp_env(
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nLOG_LEVEL=info # optional",
+        )
+        result = validate(env, example)
+        assert result.ok
+        log_var = next(v for v in result.vars if v.name == "LOG_LEVEL")
+        assert log_var.status == Status.OPTIONAL
+        assert log_var.has_default
+        assert log_var.default_value == "info"
+
+    def test_required_still_fails(self, tmp_env):
+        env, example = tmp_env(
+            env_content="",
+            example_content="DB_URL=\nSENTRY_DSN= # optional",
+        )
+        result = validate(env, example)
+        assert not result.ok
+        assert len(result.missing) == 1
+        assert result.missing[0].name == "DB_URL"
+
+
+class TestCheckEnv:
+    def test_missing_found_in_environ(self, tmp_env, monkeypatch):
+        monkeypatch.setenv("API_KEY", "from-env")
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nAPI_KEY=",
+        )
+        result = validate(env, example, check_env=True)
+        assert result.ok
+        api_var = next(v for v in result.vars if v.name == "API_KEY")
+        assert api_var.status == Status.ENV
+        assert api_var.source == "os.environ"
+
+    def test_missing_not_in_environ(self, tmp_env, monkeypatch):
+        monkeypatch.delenv("API_KEY", raising=False)
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nAPI_KEY=",
+        )
+        result = validate(env, example, check_env=True)
+        assert not result.ok
+        assert len(result.missing) == 1
+
+    def test_check_env_disabled_by_default(self, tmp_env, monkeypatch):
+        monkeypatch.setenv("API_KEY", "from-env")
+        env, example = tmp_env(
+            env_content="DB_URL=postgres://localhost",
+            example_content="DB_URL=\nAPI_KEY=",
+        )
+        result = validate(env, example)
+        assert not result.ok
+        assert len(result.missing) == 1
+
+    def test_check_env_with_optional(self, tmp_env, monkeypatch):
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+        monkeypatch.setenv("API_KEY", "from-env")
+        env, example = tmp_env(
+            env_content="DB_URL=value",
+            example_content="DB_URL=\nAPI_KEY=\nSENTRY_DSN= # optional",
+        )
+        result = validate(env, example, check_env=True)
+        assert result.ok
+        api = next(v for v in result.vars if v.name == "API_KEY")
+        sentry = next(v for v in result.vars if v.name == "SENTRY_DSN")
+        assert api.status == Status.ENV
+        assert sentry.status == Status.OPTIONAL
