@@ -1,7 +1,7 @@
 """Command-line interface for dotenvguard."""
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
@@ -35,7 +35,7 @@ def version_callback(value: bool) -> None:
 @app.callback()
 def main(
     version: Annotated[
-        bool | None,
+        Optional[bool],
         typer.Option(
             "--version",
             "-V",
@@ -106,7 +106,7 @@ def check(
         ),
     ] = ".",  # type: ignore[assignment]
     env_file: Annotated[
-        Path | None,
+        Optional[Path],
         typer.Option(
             "--env",
             "-e",
@@ -114,7 +114,7 @@ def check(
         ),
     ] = None,
     example_file: Annotated[
-        Path | None,
+        Optional[Path],
         typer.Option(
             "--example",
             "-x",

@@ -100,4 +100,4 @@ class TestCheckCommand:
     def test_version_flag(self):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in _strip_ansi(result.output)
+        assert "0.1.1" in _strip_ansi(result.output)

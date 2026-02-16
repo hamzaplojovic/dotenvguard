@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dotenvguard"
-version = "0.1.0"
+version = "0.1.1"
 description = "Catch missing .env variables before they crash production"
 readme = "README.md"
 license = "MIT"
@@ -95,7 +95,7 @@ known-first-party = ["dotenvguard"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ARG001", "TC003"]
-"src/dotenvguard/cli.py" = ["TC003"]
+"src/dotenvguard/cli.py" = ["TC003", "UP045"]
 
 # =============================================================================
 # ty (Astral type checker)
