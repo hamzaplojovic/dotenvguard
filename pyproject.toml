@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dotenvguard"
 version = "0.1.0"
-description = "Validate .env files against .env.example — catch missing variables before they crash production"
+description = "Catch missing .env variables before they crash production"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"

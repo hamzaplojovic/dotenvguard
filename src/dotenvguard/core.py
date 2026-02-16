@@ -1,4 +1,4 @@
-"""Core business logic for envguard — no CLI dependencies."""
+"""Core validation logic. No CLI dependencies."""
 
 from __future__ import annotations
 
