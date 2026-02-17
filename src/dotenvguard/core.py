@@ -7,9 +7,11 @@ import os
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from pathlib import Path
 
 
@@ -85,6 +87,22 @@ class ValidationResult:
 class ParsedVar:
     value: str | None
     is_optional: bool = False
+
+
+@overload
+def parse_env_file(
+    path: Path,
+    *,
+    parse_annotations: Literal[False] = ...,
+) -> dict[str, str | None]: ...
+
+
+@overload
+def parse_env_file(
+    path: Path,
+    *,
+    parse_annotations: Literal[True],
+) -> dict[str, ParsedVar]: ...
 
 
 def parse_env_file(
