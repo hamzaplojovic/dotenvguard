@@ -10,9 +10,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from typing import Literal
-
     from pathlib import Path
+    from typing import Literal
 
 
 class Status(StrEnum):
